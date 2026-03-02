@@ -144,6 +144,11 @@
       stroke: rgba(255, 94, 46, 0.95);
       stroke-width: 2;
     }
+    .move-capture {
+      fill: none;
+      stroke: #ffe44d;
+      stroke-width: 4;
+    }
   </style>
 </head>
 <body>
@@ -446,7 +451,7 @@
       const captured = board[ty][tx];
       board[ty][tx] = board[fy][fx];
       board[fy][fx] = "";
-      lastMovePath = { from: { x: fx, y: fy }, to: { x: tx, y: ty } };
+      lastMovePath = { from: { x: fx, y: fy }, to: { x: tx, y: ty }, captured: Boolean(captured) };
       lastMoveEl.textContent = `最近一步：${moveText(fx, fy, tx, ty, moving, captured)}`;
     }
 
@@ -491,6 +496,7 @@
             <line class="move-line" x1="${fx}" y1="${fy}" x2="${tx}" y2="${ty}" />
             <circle class="move-start" cx="${fx}" cy="${fy}" r="14" />
             <circle class="move-end" cx="${tx}" cy="${ty}" r="16" />
+            ${lastMovePath.captured ? `<circle class="move-capture" cx="${tx}" cy="${ty}" r="23" />` : ""}
           </g>
         `;
       }
