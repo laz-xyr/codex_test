@@ -37,7 +37,26 @@
     }
     h1 { margin: 0 0 8px; font-size: 24px; }
     .status { min-height: 48px; margin: 8px 0 12px; font-size: 15px; line-height: 1.4; }
-    .controls { display: flex; gap: 10px; flex-wrap: wrap; }
+    .last-move { min-height: 24px; margin-bottom: 12px; color: #5f4633; font-size: 14px; }
+    .controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    .difficulty {
+      font-size: 14px;
+      color: #4d3726;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #f4e6d2;
+      border: 1px solid #cda97e;
+      border-radius: 8px;
+      padding: 8px 10px;
+    }
+    .difficulty select {
+      border: 1px solid #b99166;
+      background: #fff9ef;
+      border-radius: 6px;
+      padding: 4px 6px;
+      color: #3d2818;
+    }
     button {
       border: none;
       background: #8c5f3d;
@@ -116,12 +135,21 @@
   <div class="panel">
     <h1>中国象棋 · 人机对决</h1>
     <div class="status" id="status"></div>
+    <div class="last-move" id="lastMove">最近一步：暂无</div>
     <div class="controls">
       <button id="restartBtn">重新开局</button>
       <button id="undoBtn">悔一步</button>
+      <label class="difficulty">
+        难度
+        <select id="difficultySelect">
+          <option value="1">简单</option>
+          <option value="2" selected>普通</option>
+          <option value="3">困难</option>
+        </select>
+      </label>
     </div>
     <p>你执红方先行，点击棋子后再点击目标交点落子。</p>
-    <p>AI 为黑方，采用简易评估（优先吃子+位置分）。</p>
+    <p>AI 为黑方，采用 Minimax + Alpha-Beta 搜索（可调 1~3 层）。</p>
   </div>
 
   <div class="board-wrap">
@@ -138,14 +166,17 @@
 
     const boardEl = document.getElementById("board");
     const statusEl = document.getElementById("status");
+    const lastMoveEl = document.getElementById("lastMove");
     const restartBtn = document.getElementById("restartBtn");
     const undoBtn = document.getElementById("undoBtn");
+    const difficultySelect = document.getElementById("difficultySelect");
 
     let board = [];
     let selected = null;
     let current = "red";
     let gameOver = false;
     let history = [];
+    let aiDepth = Number(difficultySelect.value);
 
     function initBoard() {
       const empty = Array.from({ length: 10 }, () => Array(9).fill(""));
@@ -294,19 +325,94 @@
       return res;
     }
 
-    function evaluateMove(move) {
-      const target = board[move.to.y][move.to.x];
+    function applyMoveOnBoard(bd, move) {
+      const cp = cloneBoard(bd);
+      cp[move.to.y][move.to.x] = cp[move.from.y][move.from.x];
+      cp[move.from.y][move.from.x] = "";
+      return cp;
+    }
+
+    function evaluateBoard(bd) {
       let score = 0;
-      if (target) score += VALUES[target.toLowerCase()] || 0;
-      score += Math.random() * 30;
-      score += move.to.y * 3;
+      for (let y = 0; y < 10; y++) {
+        for (let x = 0; x < 9; x++) {
+          const p = bd[y][x];
+          if (!p) continue;
+          const v = VALUES[p.toLowerCase()] || 0;
+          if (colorOf(p) === "black") {
+            score += v;
+            score += y * 2;
+          } else {
+            score -= v;
+            score -= (9 - y) * 2;
+          }
+        }
+      }
+      score += allMoves("black", bd).length * 2;
+      score -= allMoves("red", bd).length * 2;
       return score;
+    }
+
+    function minimax(bd, depth, alpha, beta, maximizingBlack) {
+      const redKing = findKing(bd, "red");
+      const blackKing = findKing(bd, "black");
+      if (!redKing) return { score: 999999 };
+      if (!blackKing) return { score: -999999 };
+      if (depth === 0) return { score: evaluateBoard(bd) };
+
+      const color = maximizingBlack ? "black" : "red";
+      const moves = allMoves(color, bd);
+      if (!moves.length) {
+        return { score: maximizingBlack ? -888888 : 888888 };
+      }
+
+      let bestMove = null;
+      if (maximizingBlack) {
+        let bestScore = -Infinity;
+        for (const move of moves) {
+          const nextBd = applyMoveOnBoard(bd, move);
+          const score = minimax(nextBd, depth - 1, alpha, beta, false).score;
+          if (score > bestScore) {
+            bestScore = score;
+            bestMove = move;
+          }
+          alpha = Math.max(alpha, bestScore);
+          if (beta <= alpha) break;
+        }
+        return { score: bestScore, move: bestMove };
+      }
+
+      let bestScore = Infinity;
+      for (const move of moves) {
+        const nextBd = applyMoveOnBoard(bd, move);
+        const score = minimax(nextBd, depth - 1, alpha, beta, true).score;
+        if (score < bestScore) {
+          bestScore = score;
+          bestMove = move;
+        }
+        beta = Math.min(beta, bestScore);
+        if (beta <= alpha) break;
+      }
+      return { score: bestScore, move: bestMove };
+    }
+
+    function posText(x, y) {
+      return `${x + 1}路${10 - y}线`;
+    }
+
+    function moveText(fx, fy, tx, ty, piece, captured) {
+      const name = PIECE_TEXT[piece] || piece;
+      const action = captured ? `吃${PIECE_TEXT[captured] || captured}` : "到";
+      return `${name}：${posText(fx, fy)} ${action} ${posText(tx, ty)}`;
     }
 
     function movePiece(fx, fy, tx, ty) {
       history.push(cloneBoard(board));
+      const moving = board[fy][fx];
+      const captured = board[ty][tx];
       board[ty][tx] = board[fy][fx];
       board[fy][fx] = "";
+      lastMoveEl.textContent = `最近一步：${moveText(fx, fy, tx, ty, moving, captured)}`;
     }
 
     function winner() {
@@ -379,7 +485,7 @@
       }
 
       if (gameOver) return;
-      statusEl.textContent = current === "red" ? "轮到你（红方）走棋" : "AI 正在思考...";
+      statusEl.textContent = current === "red" ? "轮到你（红方）走棋" : `AI 正在思考（${aiDepth}层）...`;
     }
 
     function onCellClick(e) {
@@ -425,11 +531,19 @@
         statusEl.textContent = "AI 无棋可走，你获胜！";
         return;
       }
-      moves.sort((a,b) => evaluateMove(b) - evaluateMove(a));
-      const best = moves[0];
+      const result = minimax(board, aiDepth, -Infinity, Infinity, true);
+      const best = result.move || moves[0];
       movePiece(best.from.x, best.from.y, best.to.x, best.to.y);
       checkEndAndNext();
     }
+
+    difficultySelect.addEventListener("change", () => {
+      aiDepth = Number(difficultySelect.value);
+      if (!gameOver && current === "red") {
+        statusEl.textContent = `难度已切换：${aiDepth}层搜索，轮到你（红方）走棋。`;
+      }
+      render();
+    });
 
     restartBtn.addEventListener("click", () => {
       board = initBoard();
@@ -438,6 +552,7 @@
       history = [];
       gameOver = false;
       statusEl.textContent = "新对局开始，你执红先行。";
+      lastMoveEl.textContent = "最近一步：暂无";
       render();
     });
 
@@ -450,11 +565,13 @@
       current = "red";
       selected = null;
       statusEl.textContent = "已悔棋，轮到你（红方）。";
+      lastMoveEl.textContent = "最近一步：已悔棋";
       render();
     });
 
     board = initBoard();
     statusEl.textContent = "新对局开始，你执红先行。";
+    lastMoveEl.textContent = "最近一步：暂无";
     render();
   </script>
 </body>
