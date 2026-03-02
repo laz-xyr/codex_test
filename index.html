@@ -52,43 +52,41 @@
       background: var(--bg);
       border: 4px solid var(--line);
       border-radius: 8px;
-      padding: 10px;
+      padding: 22px;
       box-shadow: 0 10px 24px rgba(0, 0, 0, 0.2);
     }
     #board {
-      display: grid;
-      grid-template-columns: repeat(9, var(--cell));
-      grid-template-rows: repeat(10, var(--cell));
       position: relative;
+      width: calc(var(--cell) * 8);
+      height: calc(var(--cell) * 9);
       user-select: none;
     }
-    .cell {
-      width: var(--cell);
-      height: var(--cell);
-      position: relative;
-      border-right: 1px solid var(--line);
-      border-bottom: 1px solid var(--line);
+    #grid {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      overflow: visible;
+      pointer-events: none;
+    }
+    .river {
+      text-anchor: middle;
+      font-size: 34px;
+      fill: #5b3a29;
+      letter-spacing: 10px;
+      font-weight: 500;
+    }
+    .point {
+      position: absolute;
+      width: 38px;
+      height: 38px;
+      transform: translate(-50%, -50%);
+      border-radius: 50%;
       display: flex;
       align-items: center;
       justify-content: center;
-    }
-    .cell:nth-child(9n + 1) { border-left: 1px solid var(--line); }
-    .cell:nth-child(-n + 9) { border-top: 1px solid var(--line); }
-    .river {
-      grid-column: 1 / span 9;
-      text-align: center;
-      font-size: 26px;
-      color: #5b3a29;
-      letter-spacing: 8px;
-      pointer-events: none;
-      position: absolute;
-      left: 0;
-      right: 0;
-      top: calc(var(--cell) * 4.5 - 18px);
-      background: var(--river);
-      border-top: 1px solid var(--line);
-      border-bottom: 1px solid var(--line);
-      padding: 4px 0;
+      cursor: pointer;
+      z-index: 2;
     }
     .piece {
       width: 48px;
@@ -99,22 +97,18 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 24px;
+      font-size: 34px;
       font-weight: 700;
-      cursor: pointer;
-      z-index: 2;
       box-shadow: inset 0 0 3px rgba(0,0,0,0.2);
     }
     .piece.red { color: var(--red); }
     .piece.black { color: var(--black); }
     .selected { outline: 3px solid #2f95ff; }
-    .hint::after {
-      content: "";
-      width: 12px;
-      height: 12px;
+    .hint {
+      width: 14px;
+      height: 14px;
       border-radius: 50%;
-      background: rgba(47, 149, 255, 0.7);
-      position: absolute;
+      background: rgba(47, 149, 255, 0.75);
     }
   </style>
 </head>
@@ -126,7 +120,7 @@
       <button id="restartBtn">重新开局</button>
       <button id="undoBtn">悔一步</button>
     </div>
-    <p>你执红方先行，点击棋子后再点击目标格落子。</p>
+    <p>你执红方先行，点击棋子后再点击目标交点落子。</p>
     <p>AI 为黑方，采用简易评估（优先吃子+位置分）。</p>
   </div>
 
@@ -135,6 +129,7 @@
   </div>
 
   <script>
+    const CELL = 64;
     const PIECE_TEXT = {
       K: "帅", A: "仕", B: "相", N: "马", R: "车", C: "炮", P: "兵",
       k: "将", a: "士", b: "象", n: "马", r: "车", c: "炮", p: "卒"
@@ -279,8 +274,6 @@
     }
 
     function legalMoves(x, y, bd = board) {
-      const p = bd[y][x];
-      const color = colorOf(p);
       return pseudoMoves(x, y, bd).filter(m => {
         const cp = cloneBoard(bd);
         cp[m.y][m.x] = cp[y][x];
@@ -324,33 +317,66 @@
       return null;
     }
 
-    function render() {
-      boardEl.innerHTML = "";
-      for (let y = 0; y < 10; y++) {
-        for (let x = 0; x < 9; x++) {
-          const cell = document.createElement("div");
-          cell.className = "cell";
-          cell.dataset.x = x;
-          cell.dataset.y = y;
-          const p = board[y][x];
-          if (selected && selected.x === x && selected.y === y) {
-            cell.classList.add("hint");
-          }
-          if (p) {
-            const piece = document.createElement("div");
-            piece.className = `piece ${colorOf(p)}`;
-            if (selected && selected.x === x && selected.y === y) piece.classList.add("selected");
-            piece.textContent = PIECE_TEXT[p];
-            cell.appendChild(piece);
-          }
-          cell.addEventListener("click", onCellClick);
-          boardEl.appendChild(cell);
+    function drawGrid() {
+      const w = CELL * 8;
+      const h = CELL * 9;
+      let lines = "";
+      for (let x = 0; x < 9; x++) {
+        const xx = x * CELL;
+        if (x === 0 || x === 8) {
+          lines += `<line x1="${xx}" y1="0" x2="${xx}" y2="${h}" stroke="var(--line)" stroke-width="2" />`;
+        } else {
+          lines += `<line x1="${xx}" y1="0" x2="${xx}" y2="${CELL * 4}" stroke="var(--line)" stroke-width="2" />`;
+          lines += `<line x1="${xx}" y1="${CELL * 5}" x2="${xx}" y2="${h}" stroke="var(--line)" stroke-width="2" />`;
         }
       }
-      const river = document.createElement("div");
-      river.className = "river";
-      river.textContent = "楚 河     汉 界";
-      boardEl.appendChild(river);
+      for (let y = 0; y < 10; y++) {
+        const yy = y * CELL;
+        lines += `<line x1="0" y1="${yy}" x2="${w}" y2="${yy}" stroke="var(--line)" stroke-width="2" />`;
+      }
+      lines += `<line x1="${3*CELL}" y1="0" x2="${5*CELL}" y2="${2*CELL}" stroke="var(--line)" stroke-width="2" />`;
+      lines += `<line x1="${5*CELL}" y1="0" x2="${3*CELL}" y2="${2*CELL}" stroke="var(--line)" stroke-width="2" />`;
+      lines += `<line x1="${3*CELL}" y1="${7*CELL}" x2="${5*CELL}" y2="${9*CELL}" stroke="var(--line)" stroke-width="2" />`;
+      lines += `<line x1="${5*CELL}" y1="${7*CELL}" x2="${3*CELL}" y2="${9*CELL}" stroke="var(--line)" stroke-width="2" />`;
+
+      return `<svg id="grid" viewBox="-2 -2 ${w + 4} ${h + 4}" aria-hidden="true">${lines}<text class="river" x="${w/2}" y="${CELL * 4.72}">楚 河 汉 界</text></svg>`;
+    }
+
+    function render() {
+      boardEl.innerHTML = drawGrid();
+      const legalSet = new Set();
+      if (selected) for (const m of legalMoves(selected.x, selected.y)) legalSet.add(`${m.x},${m.y}`);
+
+      for (let y = 0; y < 10; y++) {
+        for (let x = 0; x < 9; x++) {
+          const point = document.createElement("div");
+          point.className = "point";
+          point.style.left = `${x * CELL}px`;
+          point.style.top = `${y * CELL}px`;
+          point.dataset.x = x;
+          point.dataset.y = y;
+
+          const p = board[y][x];
+          if (selected && selected.x === x && selected.y === y && p) {
+            const piece = document.createElement("div");
+            piece.className = `piece ${colorOf(p)} selected`;
+            piece.textContent = PIECE_TEXT[p];
+            point.appendChild(piece);
+          } else if (p) {
+            const piece = document.createElement("div");
+            piece.className = `piece ${colorOf(p)}`;
+            piece.textContent = PIECE_TEXT[p];
+            point.appendChild(piece);
+          } else if (legalSet.has(`${x},${y}`)) {
+            const hint = document.createElement("div");
+            hint.className = "hint";
+            point.appendChild(hint);
+          }
+
+          point.addEventListener("click", onCellClick);
+          boardEl.appendChild(point);
+        }
+      }
 
       if (gameOver) return;
       statusEl.textContent = current === "red" ? "轮到你（红方）走棋" : "AI 正在思考...";
@@ -358,9 +384,9 @@
 
     function onCellClick(e) {
       if (gameOver || current !== "red") return;
-      const cell = e.currentTarget;
-      const x = Number(cell.dataset.x);
-      const y = Number(cell.dataset.y);
+      const point = e.currentTarget;
+      const x = Number(point.dataset.x);
+      const y = Number(point.dataset.y);
       const p = board[y][x];
 
       if (selected) {
@@ -374,11 +400,7 @@
         }
       }
 
-      if (p && colorOf(p) === "red") {
-        selected = { x, y };
-      } else {
-        selected = null;
-      }
+      selected = p && colorOf(p) === "red" ? { x, y } : null;
       render();
     }
 
