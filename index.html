@@ -1,0 +1,646 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>中国象棋 · 人机对决</title>
+  <style>
+    :root {
+      --bg: #f4efe6;
+      --line: #6f4e37;
+      --river: #d6c3a1;
+      --red: #bf2f2f;
+      --black: #222;
+      --cell: 64px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: linear-gradient(180deg, #f7f0e5 0%, #e9dbc5 100%);
+      color: #2b1b11;
+      display: flex;
+      min-height: 100vh;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      gap: 24px;
+      flex-wrap: wrap;
+    }
+    .panel {
+      width: min(100%, 420px);
+      background: rgba(255, 250, 240, 0.9);
+      border: 2px solid #b08f6f;
+      border-radius: 12px;
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
+      padding: 16px;
+    }
+    h1 { margin: 0 0 8px; font-size: 24px; }
+    .status { min-height: 48px; margin: 8px 0 12px; font-size: 15px; line-height: 1.4; }
+    .last-move { min-height: 24px; margin-bottom: 12px; color: #5f4633; font-size: 14px; }
+    .controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    .difficulty {
+      font-size: 14px;
+      color: #4d3726;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #f4e6d2;
+      border: 1px solid #cda97e;
+      border-radius: 8px;
+      padding: 8px 10px;
+    }
+    .difficulty select {
+      border: 1px solid #b99166;
+      background: #fff9ef;
+      border-radius: 6px;
+      padding: 4px 6px;
+      color: #3d2818;
+    }
+    button {
+      border: none;
+      background: #8c5f3d;
+      color: #fff;
+      border-radius: 8px;
+      padding: 10px 14px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    button:hover { background: #764f33; }
+    .board-wrap {
+      background: var(--bg);
+      border: 4px solid var(--line);
+      border-radius: 8px;
+      padding: 22px;
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.2);
+    }
+    #board {
+      position: relative;
+      width: calc(var(--cell) * 8);
+      height: calc(var(--cell) * 9);
+      user-select: none;
+    }
+    #grid {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      overflow: visible;
+      pointer-events: none;
+    }
+    .river {
+      text-anchor: middle;
+      font-size: 34px;
+      fill: #5b3a29;
+      letter-spacing: 10px;
+      font-weight: 500;
+    }
+    .point {
+      position: absolute;
+      width: 38px;
+      height: 38px;
+      transform: translate(-50%, -50%);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      z-index: 2;
+    }
+    .piece {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      border: 2px solid #78573e;
+      background: #fff7eb;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 34px;
+      font-weight: 700;
+      box-shadow: inset 0 0 3px rgba(0,0,0,0.2);
+    }
+    .piece.red { color: var(--red); }
+    .piece.black { color: var(--black); }
+    .selected { outline: 3px solid #2f95ff; }
+    .hint {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: rgba(47, 149, 255, 0.75);
+    }
+    .move-line {
+      stroke: rgba(46, 132, 255, 0.9);
+      stroke-width: 5;
+      stroke-linecap: round;
+    }
+    .move-start {
+      fill: rgba(46, 132, 255, 0.28);
+      stroke: rgba(46, 132, 255, 0.95);
+      stroke-width: 2;
+    }
+    .move-end {
+      fill: rgba(255, 94, 46, 0.35);
+      stroke: rgba(255, 94, 46, 0.95);
+      stroke-width: 2;
+    }
+  </style>
+</head>
+<body>
+  <div class="panel">
+    <h1>中国象棋 · 人机对决</h1>
+    <div class="status" id="status"></div>
+    <div class="last-move" id="lastMove">最近一步：暂无</div>
+    <div class="controls">
+      <button id="restartBtn">重新开局</button>
+      <button id="undoBtn">悔一步</button>
+      <label class="difficulty">
+        难度
+        <select id="difficultySelect">
+          <option value="1">简单</option>
+          <option value="2" selected>普通</option>
+          <option value="3">困难</option>
+        </select>
+      </label>
+    </div>
+    <p>你执红方先行，点击棋子后再点击目标交点落子。</p>
+    <p>AI 为黑方，采用 Minimax + Alpha-Beta 搜索（可调 1~3 层）。</p>
+  </div>
+
+  <div class="board-wrap">
+    <div id="board"></div>
+  </div>
+
+  <script>
+    const CELL = 64;
+    const PIECE_TEXT = {
+      K: "帅", A: "仕", B: "相", N: "马", R: "车", C: "炮", P: "兵",
+      k: "将", a: "士", b: "象", n: "马", r: "车", c: "炮", p: "卒"
+    };
+    const VALUES = { k: 10000, a: 110, b: 110, n: 300, r: 600, c: 350, p: 70 };
+
+    const boardEl = document.getElementById("board");
+    const statusEl = document.getElementById("status");
+    const lastMoveEl = document.getElementById("lastMove");
+    const restartBtn = document.getElementById("restartBtn");
+    const undoBtn = document.getElementById("undoBtn");
+    const difficultySelect = document.getElementById("difficultySelect");
+
+    let board = [];
+    let selected = null;
+    let current = "red";
+    let gameOver = false;
+    let history = [];
+    let aiDepth = Number(difficultySelect.value);
+    let lastMovePath = null;
+
+    function initBoard() {
+      const empty = Array.from({ length: 10 }, () => Array(9).fill(""));
+      const rows = [
+        ["r", "n", "b", "a", "k", "a", "b", "n", "r"],
+        ["", "", "", "", "", "", "", "", ""],
+        ["", "c", "", "", "", "", "", "c", ""],
+        ["p", "", "p", "", "p", "", "p", "", "p"],
+        ["", "", "", "", "", "", "", "", ""],
+        ["", "", "", "", "", "", "", "", ""],
+        ["P", "", "P", "", "P", "", "P", "", "P"],
+        ["", "C", "", "", "", "", "", "C", ""],
+        ["", "", "", "", "", "", "", "", ""],
+        ["R", "N", "B", "A", "K", "A", "B", "N", "R"]
+      ];
+      for (let y = 0; y < 10; y++) for (let x = 0; x < 9; x++) empty[y][x] = rows[y][x];
+      return empty;
+    }
+
+    function colorOf(piece) {
+      if (!piece) return null;
+      return piece === piece.toUpperCase() ? "red" : "black";
+    }
+
+    function inPalace(x, y, color) {
+      if (x < 3 || x > 5) return false;
+      return color === "red" ? y >= 7 && y <= 9 : y >= 0 && y <= 2;
+    }
+
+    function cloneBoard(bd) {
+      return bd.map(r => [...r]);
+    }
+
+    function findKing(bd, color) {
+      const target = color === "red" ? "K" : "k";
+      for (let y = 0; y < 10; y++) for (let x = 0; x < 9; x++) if (bd[y][x] === target) return { x, y };
+      return null;
+    }
+
+    function kingsFace(bd) {
+      const kr = findKing(bd, "red");
+      const kb = findKing(bd, "black");
+      if (!kr || !kb || kr.x !== kb.x) return false;
+      const min = Math.min(kr.y, kb.y) + 1;
+      const max = Math.max(kr.y, kb.y);
+      for (let y = min; y < max; y++) if (bd[y][kr.x]) return false;
+      return true;
+    }
+
+    function pseudoMoves(x, y, bd = board) {
+      const p = bd[y][x];
+      if (!p) return [];
+      const color = colorOf(p);
+      const enemy = color === "red" ? "black" : "red";
+      const lower = p.toLowerCase();
+      const moves = [];
+      const push = (nx, ny) => {
+        if (nx < 0 || nx > 8 || ny < 0 || ny > 9) return;
+        const t = bd[ny][nx];
+        if (!t || colorOf(t) === enemy) moves.push({ x: nx, y: ny });
+      };
+
+      if (lower === "k") {
+        [[1,0],[-1,0],[0,1],[0,-1]].forEach(([dx,dy]) => {
+          const nx = x + dx, ny = y + dy;
+          if (inPalace(nx, ny, color)) push(nx, ny);
+        });
+      } else if (lower === "a") {
+        [[1,1],[-1,1],[1,-1],[-1,-1]].forEach(([dx,dy]) => {
+          const nx = x + dx, ny = y + dy;
+          if (inPalace(nx, ny, color)) push(nx, ny);
+        });
+      } else if (lower === "b") {
+        [[2,2],[-2,2],[2,-2],[-2,-2]].forEach(([dx,dy]) => {
+          const nx = x + dx, ny = y + dy;
+          const bx = x + dx/2, by = y + dy/2;
+          if (nx < 0 || nx > 8 || ny < 0 || ny > 9) return;
+          if (bd[by][bx]) return;
+          if (color === "red" && ny < 5) return;
+          if (color === "black" && ny > 4) return;
+          push(nx, ny);
+        });
+      } else if (lower === "n") {
+        const options = [
+          { m:[1,2], l:[0,1] }, { m:[-1,2], l:[0,1] }, { m:[1,-2], l:[0,-1] }, { m:[-1,-2], l:[0,-1] },
+          { m:[2,1], l:[1,0] }, { m:[2,-1], l:[1,0] }, { m:[-2,1], l:[-1,0] }, { m:[-2,-1], l:[-1,0] }
+        ];
+        options.forEach(({m,l}) => {
+          const [mx,my]=m,[lx,ly]=l;
+          if (bd[y+ly]?.[x+lx]) return;
+          push(x+mx,y+my);
+        });
+      } else if (lower === "r") {
+        [[1,0],[-1,0],[0,1],[0,-1]].forEach(([dx,dy]) => {
+          let nx=x+dx, ny=y+dy;
+          while (nx>=0&&nx<=8&&ny>=0&&ny<=9) {
+            const t = bd[ny][nx];
+            if (!t) moves.push({x:nx,y:ny});
+            else { if (colorOf(t)===enemy) moves.push({x:nx,y:ny}); break; }
+            nx+=dx; ny+=dy;
+          }
+        });
+      } else if (lower === "c") {
+        [[1,0],[-1,0],[0,1],[0,-1]].forEach(([dx,dy]) => {
+          let nx=x+dx, ny=y+dy, jumped=false;
+          while (nx>=0&&nx<=8&&ny>=0&&ny<=9) {
+            const t = bd[ny][nx];
+            if (!jumped) {
+              if (!t) moves.push({x:nx,y:ny});
+              else jumped=true;
+            } else if (t) {
+              if (colorOf(t)===enemy) moves.push({x:nx,y:ny});
+              break;
+            }
+            nx+=dx; ny+=dy;
+          }
+        });
+      } else if (lower === "p") {
+        const dir = color === "red" ? -1 : 1;
+        push(x, y + dir);
+        const crossed = color === "red" ? y <= 4 : y >= 5;
+        if (crossed) { push(x+1,y); push(x-1,y); }
+      }
+
+      return moves;
+    }
+
+
+    function isInCheck(color, bd = board) {
+      const king = findKing(bd, color);
+      if (!king) return true;
+      const enemy = color === "red" ? "black" : "red";
+      for (let y = 0; y < 10; y++) {
+        for (let x = 0; x < 9; x++) {
+          if (colorOf(bd[y][x]) !== enemy) continue;
+          const attacks = pseudoMoves(x, y, bd);
+          if (attacks.some(m => m.x === king.x && m.y === king.y)) return true;
+        }
+      }
+      return false;
+    }
+
+    function legalMoves(x, y, bd = board) {
+      const moving = bd[y][x];
+      const color = colorOf(moving);
+      if (!moving || !color) return [];
+      return pseudoMoves(x, y, bd).filter(m => {
+        const cp = cloneBoard(bd);
+        cp[m.y][m.x] = cp[y][x];
+        cp[y][x] = "";
+        return !kingsFace(cp) && !isInCheck(color, cp);
+      });
+    }
+
+    function allMoves(color, bd = board) {
+      const res = [];
+      for (let y=0;y<10;y++) {
+        for (let x=0;x<9;x++) {
+          if (colorOf(bd[y][x]) === color) {
+            for (const m of legalMoves(x,y,bd)) res.push({ from:{x,y}, to:m });
+          }
+        }
+      }
+      return res;
+    }
+
+    function applyMoveOnBoard(bd, move) {
+      const cp = cloneBoard(bd);
+      cp[move.to.y][move.to.x] = cp[move.from.y][move.from.x];
+      cp[move.from.y][move.from.x] = "";
+      return cp;
+    }
+
+    function evaluateBoard(bd) {
+      let score = 0;
+      for (let y = 0; y < 10; y++) {
+        for (let x = 0; x < 9; x++) {
+          const p = bd[y][x];
+          if (!p) continue;
+          const v = VALUES[p.toLowerCase()] || 0;
+          if (colorOf(p) === "black") {
+            score += v;
+            score += y * 2;
+          } else {
+            score -= v;
+            score -= (9 - y) * 2;
+          }
+        }
+      }
+      score += allMoves("black", bd).length * 2;
+      score -= allMoves("red", bd).length * 2;
+      return score;
+    }
+
+    function minimax(bd, depth, alpha, beta, maximizingBlack) {
+      const redKing = findKing(bd, "red");
+      const blackKing = findKing(bd, "black");
+      if (!redKing) return { score: 999999 };
+      if (!blackKing) return { score: -999999 };
+      if (depth === 0) return { score: evaluateBoard(bd) };
+
+      const color = maximizingBlack ? "black" : "red";
+      const moves = allMoves(color, bd);
+      if (!moves.length) {
+        return { score: maximizingBlack ? -888888 : 888888 };
+      }
+
+      let bestMove = null;
+      if (maximizingBlack) {
+        let bestScore = -Infinity;
+        for (const move of moves) {
+          const nextBd = applyMoveOnBoard(bd, move);
+          const score = minimax(nextBd, depth - 1, alpha, beta, false).score;
+          if (score > bestScore) {
+            bestScore = score;
+            bestMove = move;
+          }
+          alpha = Math.max(alpha, bestScore);
+          if (beta <= alpha) break;
+        }
+        return { score: bestScore, move: bestMove };
+      }
+
+      let bestScore = Infinity;
+      for (const move of moves) {
+        const nextBd = applyMoveOnBoard(bd, move);
+        const score = minimax(nextBd, depth - 1, alpha, beta, true).score;
+        if (score < bestScore) {
+          bestScore = score;
+          bestMove = move;
+        }
+        beta = Math.min(beta, bestScore);
+        if (beta <= alpha) break;
+      }
+      return { score: bestScore, move: bestMove };
+    }
+
+    function posText(x, y) {
+      return `${x + 1}路${10 - y}线`;
+    }
+
+    function moveText(fx, fy, tx, ty, piece, captured) {
+      const name = PIECE_TEXT[piece] || piece;
+      const action = captured ? `吃${PIECE_TEXT[captured] || captured}` : "到";
+      return `${name}：${posText(fx, fy)} ${action} ${posText(tx, ty)}`;
+    }
+
+    function movePiece(fx, fy, tx, ty) {
+      history.push(cloneBoard(board));
+      const moving = board[fy][fx];
+      const captured = board[ty][tx];
+      board[ty][tx] = board[fy][fx];
+      board[fy][fx] = "";
+      lastMovePath = { from: { x: fx, y: fy }, to: { x: tx, y: ty } };
+      lastMoveEl.textContent = `最近一步：${moveText(fx, fy, tx, ty, moving, captured)}`;
+    }
+
+    function winner() {
+      const redKing = findKing(board, "red");
+      const blackKing = findKing(board, "black");
+      if (!redKing) return "black";
+      if (!blackKing) return "red";
+      return null;
+    }
+
+    function drawGrid() {
+      const w = CELL * 8;
+      const h = CELL * 9;
+      let lines = "";
+      for (let x = 0; x < 9; x++) {
+        const xx = x * CELL;
+        if (x === 0 || x === 8) {
+          lines += `<line x1="${xx}" y1="0" x2="${xx}" y2="${h}" stroke="var(--line)" stroke-width="2" />`;
+        } else {
+          lines += `<line x1="${xx}" y1="0" x2="${xx}" y2="${CELL * 4}" stroke="var(--line)" stroke-width="2" />`;
+          lines += `<line x1="${xx}" y1="${CELL * 5}" x2="${xx}" y2="${h}" stroke="var(--line)" stroke-width="2" />`;
+        }
+      }
+      for (let y = 0; y < 10; y++) {
+        const yy = y * CELL;
+        lines += `<line x1="0" y1="${yy}" x2="${w}" y2="${yy}" stroke="var(--line)" stroke-width="2" />`;
+      }
+      lines += `<line x1="${3*CELL}" y1="0" x2="${5*CELL}" y2="${2*CELL}" stroke="var(--line)" stroke-width="2" />`;
+      lines += `<line x1="${5*CELL}" y1="0" x2="${3*CELL}" y2="${2*CELL}" stroke="var(--line)" stroke-width="2" />`;
+      lines += `<line x1="${3*CELL}" y1="${7*CELL}" x2="${5*CELL}" y2="${9*CELL}" stroke="var(--line)" stroke-width="2" />`;
+      lines += `<line x1="${5*CELL}" y1="${7*CELL}" x2="${3*CELL}" y2="${9*CELL}" stroke="var(--line)" stroke-width="2" />`;
+
+      let marker = "";
+      if (lastMovePath) {
+        const fx = lastMovePath.from.x * CELL;
+        const fy = lastMovePath.from.y * CELL;
+        const tx = lastMovePath.to.x * CELL;
+        const ty = lastMovePath.to.y * CELL;
+        marker = `
+          <g class="last-move-marker">
+            <line class="move-line" x1="${fx}" y1="${fy}" x2="${tx}" y2="${ty}" />
+            <circle class="move-start" cx="${fx}" cy="${fy}" r="14" />
+            <circle class="move-end" cx="${tx}" cy="${ty}" r="16" />
+          </g>
+        `;
+      }
+
+      return `<svg id="grid" viewBox="-2 -2 ${w + 4} ${h + 4}" aria-hidden="true">${lines}${marker}<text class="river" x="${w/2}" y="${CELL * 4.72}">楚 河 汉 界</text></svg>`;
+    }
+
+    function render() {
+      boardEl.innerHTML = drawGrid();
+      const legalSet = new Set();
+      if (selected) for (const m of legalMoves(selected.x, selected.y)) legalSet.add(`${m.x},${m.y}`);
+
+      for (let y = 0; y < 10; y++) {
+        for (let x = 0; x < 9; x++) {
+          const point = document.createElement("div");
+          point.className = "point";
+          point.style.left = `${x * CELL}px`;
+          point.style.top = `${y * CELL}px`;
+          point.dataset.x = x;
+          point.dataset.y = y;
+
+          const p = board[y][x];
+          if (selected && selected.x === x && selected.y === y && p) {
+            const piece = document.createElement("div");
+            piece.className = `piece ${colorOf(p)} selected`;
+            piece.textContent = PIECE_TEXT[p];
+            point.appendChild(piece);
+          } else if (p) {
+            const piece = document.createElement("div");
+            piece.className = `piece ${colorOf(p)}`;
+            piece.textContent = PIECE_TEXT[p];
+            point.appendChild(piece);
+          } else if (legalSet.has(`${x},${y}`)) {
+            const hint = document.createElement("div");
+            hint.className = "hint";
+            point.appendChild(hint);
+          }
+
+          point.addEventListener("click", onCellClick);
+          boardEl.appendChild(point);
+        }
+      }
+
+      if (gameOver) return;
+      statusEl.textContent = current === "red" ? "轮到你（红方）走棋" : `AI 正在思考（${aiDepth}层）...`;
+    }
+
+    function onCellClick(e) {
+      if (gameOver || current !== "red") return;
+      const point = e.currentTarget;
+      const x = Number(point.dataset.x);
+      const y = Number(point.dataset.y);
+      const p = board[y][x];
+
+      if (selected) {
+        const moves = legalMoves(selected.x, selected.y);
+        const ok = moves.some(m => m.x === x && m.y === y);
+        if (ok) {
+          movePiece(selected.x, selected.y, x, y);
+          selected = null;
+          checkEndAndNext();
+          return;
+        }
+      }
+
+      selected = p && colorOf(p) === "red" ? { x, y } : null;
+      render();
+    }
+
+    function finishGame(statusText, alertText) {
+      gameOver = true;
+      statusEl.textContent = statusText;
+      render();
+      alert(alertText);
+    }
+
+    function checkEndAndNext() {
+      const w = winner();
+      if (w) {
+        finishGame(w === "red" ? "你赢了！" : "AI 获胜！", w === "red" ? "恭喜你获胜！" : "很遗憾，AI 获胜！");
+        return;
+      }
+
+      current = current === "red" ? "black" : "red";
+      const nextMoves = allMoves(current);
+      if (!nextMoves.length) {
+        if (current === "black") {
+          finishGame("AI 无棋可走，你获胜！", "AI 无棋可走，恭喜你获胜！");
+        } else {
+          finishGame("你已无棋可走，AI 获胜！", "你已无棋可走，很遗憾 AI 获胜！");
+        }
+        return;
+      }
+
+      render();
+      if (current === "black") setTimeout(aiTurn, 350);
+    }
+
+    function aiTurn() {
+      if (gameOver || current !== "black") return;
+      const moves = allMoves("black");
+      if (!moves.length) {
+        finishGame("AI 无棋可走，你获胜！", "AI 无棋可走，恭喜你获胜！");
+        return;
+      }
+      const result = minimax(board, aiDepth, -Infinity, Infinity, true);
+      const best = result.move || moves[0];
+      movePiece(best.from.x, best.from.y, best.to.x, best.to.y);
+      checkEndAndNext();
+    }
+
+    difficultySelect.addEventListener("change", () => {
+      aiDepth = Number(difficultySelect.value);
+      if (!gameOver && current === "red") {
+        statusEl.textContent = `难度已切换：${aiDepth}层搜索，轮到你（红方）走棋。`;
+      }
+      render();
+    });
+
+    restartBtn.addEventListener("click", () => {
+      board = initBoard();
+      selected = null;
+      current = "red";
+      history = [];
+      gameOver = false;
+      lastMovePath = null;
+      statusEl.textContent = "新对局开始，你执红先行。";
+      lastMoveEl.textContent = "最近一步：暂无";
+      render();
+    });
+
+    undoBtn.addEventListener("click", () => {
+      if (!history.length || gameOver) return;
+      board = history.pop();
+      if (history.length && current === "red") {
+        board = history.pop() || board;
+      }
+      current = "red";
+      selected = null;
+      lastMovePath = null;
+      statusEl.textContent = "已悔棋，轮到你（红方）。";
+      lastMoveEl.textContent = "最近一步：已悔棋";
+      render();
+    });
+
+    board = initBoard();
+    statusEl.textContent = "新对局开始，你执红先行。";
+    lastMovePath = null;
+    lastMoveEl.textContent = "最近一步：暂无";
+    render();
+  </script>
+</body>
+</html>
