@@ -129,6 +129,21 @@
       border-radius: 50%;
       background: rgba(47, 149, 255, 0.75);
     }
+    .move-line {
+      stroke: rgba(46, 132, 255, 0.9);
+      stroke-width: 5;
+      stroke-linecap: round;
+    }
+    .move-start {
+      fill: rgba(46, 132, 255, 0.28);
+      stroke: rgba(46, 132, 255, 0.95);
+      stroke-width: 2;
+    }
+    .move-end {
+      fill: rgba(255, 94, 46, 0.35);
+      stroke: rgba(255, 94, 46, 0.95);
+      stroke-width: 2;
+    }
   </style>
 </head>
 <body>
@@ -177,6 +192,7 @@
     let gameOver = false;
     let history = [];
     let aiDepth = Number(difficultySelect.value);
+    let lastMovePath = null;
 
     function initBoard() {
       const empty = Array.from({ length: 10 }, () => Array(9).fill(""));
@@ -412,6 +428,7 @@
       const captured = board[ty][tx];
       board[ty][tx] = board[fy][fx];
       board[fy][fx] = "";
+      lastMovePath = { from: { x: fx, y: fy }, to: { x: tx, y: ty } };
       lastMoveEl.textContent = `最近一步：${moveText(fx, fy, tx, ty, moving, captured)}`;
     }
 
@@ -445,7 +462,22 @@
       lines += `<line x1="${3*CELL}" y1="${7*CELL}" x2="${5*CELL}" y2="${9*CELL}" stroke="var(--line)" stroke-width="2" />`;
       lines += `<line x1="${5*CELL}" y1="${7*CELL}" x2="${3*CELL}" y2="${9*CELL}" stroke="var(--line)" stroke-width="2" />`;
 
-      return `<svg id="grid" viewBox="-2 -2 ${w + 4} ${h + 4}" aria-hidden="true">${lines}<text class="river" x="${w/2}" y="${CELL * 4.72}">楚 河 汉 界</text></svg>`;
+      let marker = "";
+      if (lastMovePath) {
+        const fx = lastMovePath.from.x * CELL;
+        const fy = lastMovePath.from.y * CELL;
+        const tx = lastMovePath.to.x * CELL;
+        const ty = lastMovePath.to.y * CELL;
+        marker = `
+          <g class="last-move-marker">
+            <line class="move-line" x1="${fx}" y1="${fy}" x2="${tx}" y2="${ty}" />
+            <circle class="move-start" cx="${fx}" cy="${fy}" r="14" />
+            <circle class="move-end" cx="${tx}" cy="${ty}" r="16" />
+          </g>
+        `;
+      }
+
+      return `<svg id="grid" viewBox="-2 -2 ${w + 4} ${h + 4}" aria-hidden="true">${lines}${marker}<text class="river" x="${w/2}" y="${CELL * 4.72}">楚 河 汉 界</text></svg>`;
     }
 
     function render() {
@@ -516,6 +548,7 @@
         gameOver = true;
         statusEl.textContent = w === "red" ? "你赢了！" : "AI 获胜！";
         render();
+        alert(w === "red" ? "恭喜你获胜！" : "很遗憾，AI 获胜！");
         return;
       }
       current = current === "red" ? "black" : "red";
@@ -529,6 +562,8 @@
       if (!moves.length) {
         gameOver = true;
         statusEl.textContent = "AI 无棋可走，你获胜！";
+        render();
+        alert("AI 无棋可走，恭喜你获胜！");
         return;
       }
       const result = minimax(board, aiDepth, -Infinity, Infinity, true);
@@ -551,6 +586,7 @@
       current = "red";
       history = [];
       gameOver = false;
+      lastMovePath = null;
       statusEl.textContent = "新对局开始，你执红先行。";
       lastMoveEl.textContent = "最近一步：暂无";
       render();
@@ -564,6 +600,7 @@
       }
       current = "red";
       selected = null;
+      lastMovePath = null;
       statusEl.textContent = "已悔棋，轮到你（红方）。";
       lastMoveEl.textContent = "最近一步：已悔棋";
       render();
@@ -571,6 +608,7 @@
 
     board = initBoard();
     statusEl.textContent = "新对局开始，你执红先行。";
+    lastMovePath = null;
     lastMoveEl.textContent = "最近一步：暂无";
     render();
   </script>
