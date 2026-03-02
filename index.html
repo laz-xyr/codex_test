@@ -144,6 +144,11 @@
       stroke: rgba(255, 94, 46, 0.95);
       stroke-width: 2;
     }
+    .move-capture {
+      fill: none;
+      stroke: #ffe44d;
+      stroke-width: 4;
+    }
   </style>
 </head>
 <body>
@@ -320,12 +325,30 @@
       return moves;
     }
 
+
+    function isInCheck(color, bd = board) {
+      const king = findKing(bd, color);
+      if (!king) return true;
+      const enemy = color === "red" ? "black" : "red";
+      for (let y = 0; y < 10; y++) {
+        for (let x = 0; x < 9; x++) {
+          if (colorOf(bd[y][x]) !== enemy) continue;
+          const attacks = pseudoMoves(x, y, bd);
+          if (attacks.some(m => m.x === king.x && m.y === king.y)) return true;
+        }
+      }
+      return false;
+    }
+
     function legalMoves(x, y, bd = board) {
+      const moving = bd[y][x];
+      const color = colorOf(moving);
+      if (!moving || !color) return [];
       return pseudoMoves(x, y, bd).filter(m => {
         const cp = cloneBoard(bd);
         cp[m.y][m.x] = cp[y][x];
         cp[y][x] = "";
-        return !kingsFace(cp);
+        return !kingsFace(cp) && !isInCheck(color, cp);
       });
     }
 
@@ -428,7 +451,7 @@
       const captured = board[ty][tx];
       board[ty][tx] = board[fy][fx];
       board[fy][fx] = "";
-      lastMovePath = { from: { x: fx, y: fy }, to: { x: tx, y: ty } };
+      lastMovePath = { from: { x: fx, y: fy }, to: { x: tx, y: ty }, captured: Boolean(captured) };
       lastMoveEl.textContent = `最近一步：${moveText(fx, fy, tx, ty, moving, captured)}`;
     }
 
@@ -473,6 +496,7 @@
             <line class="move-line" x1="${fx}" y1="${fy}" x2="${tx}" y2="${ty}" />
             <circle class="move-start" cx="${fx}" cy="${fy}" r="14" />
             <circle class="move-end" cx="${tx}" cy="${ty}" r="16" />
+            ${lastMovePath.captured ? `<circle class="move-capture" cx="${tx}" cy="${ty}" r="23" />` : ""}
           </g>
         `;
       }
@@ -542,16 +566,31 @@
       render();
     }
 
+    function finishGame(statusText, alertText) {
+      gameOver = true;
+      statusEl.textContent = statusText;
+      render();
+      alert(alertText);
+    }
+
     function checkEndAndNext() {
       const w = winner();
       if (w) {
-        gameOver = true;
-        statusEl.textContent = w === "red" ? "你赢了！" : "AI 获胜！";
-        render();
-        alert(w === "red" ? "恭喜你获胜！" : "很遗憾，AI 获胜！");
+        finishGame(w === "red" ? "你赢了！" : "AI 获胜！", w === "red" ? "恭喜你获胜！" : "很遗憾，AI 获胜！");
         return;
       }
+
       current = current === "red" ? "black" : "red";
+      const nextMoves = allMoves(current);
+      if (!nextMoves.length) {
+        if (current === "black") {
+          finishGame("AI 无棋可走，你获胜！", "AI 无棋可走，恭喜你获胜！");
+        } else {
+          finishGame("你已无棋可走，AI 获胜！", "你已无棋可走，很遗憾 AI 获胜！");
+        }
+        return;
+      }
+
       render();
       if (current === "black") setTimeout(aiTurn, 350);
     }
@@ -560,10 +599,7 @@
       if (gameOver || current !== "black") return;
       const moves = allMoves("black");
       if (!moves.length) {
-        gameOver = true;
-        statusEl.textContent = "AI 无棋可走，你获胜！";
-        render();
-        alert("AI 无棋可走，恭喜你获胜！");
+        finishGame("AI 无棋可走，你获胜！", "AI 无棋可走，恭喜你获胜！");
         return;
       }
       const result = minimax(board, aiDepth, -Infinity, Infinity, true);
