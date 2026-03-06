@@ -166,7 +166,7 @@
       transform: translate(-50%, -50%);
       z-index: 6;
       pointer-events: none;
-      transition: left 240ms ease, top 240ms ease;
+      transition: left 420ms ease, top 420ms ease;
     }
     .moving-piece.red { color: var(--red); }
     .moving-piece.black { color: var(--black); }
@@ -486,20 +486,26 @@
 
     function animateMove(fx, fy, tx, ty, piece) {
       return new Promise(resolve => {
+        const sourcePieceEl = boardEl.querySelector(`.point[data-x="${fx}"][data-y="${fy}"] .piece`);
+        if (sourcePieceEl) sourcePieceEl.style.visibility = "hidden";
+
         const movingEl = document.createElement("div");
         movingEl.className = `moving-piece ${colorOf(piece)}`;
         movingEl.textContent = PIECE_TEXT[piece] || piece;
         movingEl.style.left = `${fx * CELL}px`;
         movingEl.style.top = `${fy * CELL}px`;
         boardEl.appendChild(movingEl);
+
         requestAnimationFrame(() => {
           movingEl.style.left = `${tx * CELL}px`;
           movingEl.style.top = `${ty * CELL}px`;
         });
+
         setTimeout(() => {
           movingEl.remove();
+          if (sourcePieceEl) sourcePieceEl.style.visibility = "";
           resolve();
-        }, 260);
+        }, 460);
       });
     }
 
