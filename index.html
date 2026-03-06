@@ -509,6 +509,43 @@
       });
     }
 
+    function findReverseMove(currentBoard, targetBoard) {
+      const diff = [];
+      for (let y = 0; y < 10; y++) {
+        for (let x = 0; x < 9; x++) {
+          if (currentBoard[y][x] !== targetBoard[y][x]) {
+            diff.push({ x, y });
+          }
+        }
+      }
+      if (diff.length !== 2) return null;
+
+      for (const from of diff) {
+        for (const to of diff) {
+          if (from === to) continue;
+          const moving = currentBoard[from.y][from.x];
+          if (!moving) continue;
+          if (targetBoard[to.y][to.x] === moving) {
+            return { from, to, piece: moving };
+          }
+        }
+      }
+      return null;
+    }
+
+    async function animateUndoToSnapshot(snapshot) {
+      const reverse = findReverseMove(board, snapshot.board);
+      if (reverse) {
+        await animateMove(reverse.from.x, reverse.from.y, reverse.to.x, reverse.to.y, reverse.piece);
+      }
+      board = cloneBoard(snapshot.board);
+      repetitionCounts = cloneRepetitionCounts(snapshot.repetitionCounts);
+      current = snapshot.current;
+      lastMovePath = snapshot.lastMovePath;
+      lastMoveEl.textContent = snapshot.lastMoveText;
+      render();
+    }
+
     async function movePiece(fx, fy, tx, ty) {
       history.push({
         board: cloneBoard(board),
@@ -724,22 +761,29 @@
       render();
     });
 
-    undoBtn.addEventListener("click", () => {
-      if (!history.length || gameOver) return;
-      let prev = history.pop();
+    undoBtn.addEventListener("click", async () => {
+      if (!history.length || gameOver || isAnimating) return;
+
+      isAnimating = true;
+      selected = null;
+      statusEl.textContent = "悔棋中...";
+
+      const snapshots = [];
+      const first = history.pop();
+      if (first) snapshots.push(first);
       if (history.length && current === "red") {
-        prev = history.pop() || prev;
+        const second = history.pop();
+        if (second) snapshots.push(second);
       }
-      if (prev) {
-        board = cloneBoard(prev.board);
-        repetitionCounts = cloneRepetitionCounts(prev.repetitionCounts);
-        current = prev.current;
-        lastMovePath = prev.lastMovePath;
-        lastMoveEl.textContent = prev.lastMoveText;
+
+      for (const snapshot of snapshots) {
+        await animateUndoToSnapshot(snapshot);
       }
+
       current = "red";
       selected = null;
       statusEl.textContent = "已悔棋，轮到你（红方）。";
+      isAnimating = false;
       render();
     });
 
