@@ -119,6 +119,7 @@
       font-size: 34px;
       font-weight: 700;
       box-shadow: inset 0 0 3px rgba(0,0,0,0.2);
+      transition: transform 0.2s ease;
     }
     .piece.red { color: var(--red); }
     .piece.black { color: var(--black); }
@@ -149,6 +150,26 @@
       stroke: #ffe44d;
       stroke-width: 4;
     }
+    .moving-piece {
+      position: absolute;
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      border: 2px solid #78573e;
+      background: #fff7eb;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 34px;
+      font-weight: 700;
+      box-shadow: inset 0 0 3px rgba(0,0,0,0.2), 0 6px 12px rgba(0,0,0,0.25);
+      transform: translate(-50%, -50%);
+      z-index: 6;
+      pointer-events: none;
+      transition: left 240ms ease, top 240ms ease;
+    }
+    .moving-piece.red { color: var(--red); }
+    .moving-piece.black { color: var(--black); }
   </style>
 </head>
 <body>
@@ -198,6 +219,8 @@
     let history = [];
     let aiDepth = Number(difficultySelect.value);
     let lastMovePath = null;
+    let repetitionCounts = Object.create(null);
+    let isAnimating = false;
 
     function initBoard() {
       const empty = Array.from({ length: 10 }, () => Array(9).fill(""));
@@ -371,6 +394,22 @@
       return cp;
     }
 
+    function positionKey(bd, turn) {
+      const rows = bd.map(r => r.map(c => c || ".").join("")).join("/");
+      return `${rows}|${turn}`;
+    }
+
+    function cloneRepetitionCounts(counts = repetitionCounts) {
+      return { ...counts };
+    }
+
+    function wouldCauseThreefoldRepetition(move, turn, bd = board, counts = repetitionCounts) {
+      const nextBoard = applyMoveOnBoard(bd, move);
+      const nextTurn = turn === "red" ? "black" : "red";
+      const key = positionKey(nextBoard, nextTurn);
+      return (counts[key] || 0) >= 2;
+    }
+
     function evaluateBoard(bd) {
       let score = 0;
       for (let y = 0; y < 10; y++) {
@@ -445,14 +484,45 @@
       return `${name}：${posText(fx, fy)} ${action} ${posText(tx, ty)}`;
     }
 
-    function movePiece(fx, fy, tx, ty) {
-      history.push(cloneBoard(board));
+    function animateMove(fx, fy, tx, ty, piece) {
+      return new Promise(resolve => {
+        const movingEl = document.createElement("div");
+        movingEl.className = `moving-piece ${colorOf(piece)}`;
+        movingEl.textContent = PIECE_TEXT[piece] || piece;
+        movingEl.style.left = `${fx * CELL}px`;
+        movingEl.style.top = `${fy * CELL}px`;
+        boardEl.appendChild(movingEl);
+        requestAnimationFrame(() => {
+          movingEl.style.left = `${tx * CELL}px`;
+          movingEl.style.top = `${ty * CELL}px`;
+        });
+        setTimeout(() => {
+          movingEl.remove();
+          resolve();
+        }, 260);
+      });
+    }
+
+    async function movePiece(fx, fy, tx, ty) {
+      history.push({
+        board: cloneBoard(board),
+        repetitionCounts: cloneRepetitionCounts(),
+        current,
+        lastMovePath,
+        lastMoveText: lastMoveEl.textContent
+      });
       const moving = board[fy][fx];
       const captured = board[ty][tx];
+      isAnimating = true;
+      await animateMove(fx, fy, tx, ty, moving);
       board[ty][tx] = board[fy][fx];
       board[fy][fx] = "";
       lastMovePath = { from: { x: fx, y: fy }, to: { x: tx, y: ty }, captured: Boolean(captured) };
       lastMoveEl.textContent = `最近一步：${moveText(fx, fy, tx, ty, moving, captured)}`;
+      const nextTurn = current === "red" ? "black" : "red";
+      const key = positionKey(board, nextTurn);
+      repetitionCounts[key] = (repetitionCounts[key] || 0) + 1;
+      isAnimating = false;
     }
 
     function winner() {
@@ -541,11 +611,15 @@
       }
 
       if (gameOver) return;
+      if (isAnimating) {
+        statusEl.textContent = "棋子移动中...";
+        return;
+      }
       statusEl.textContent = current === "red" ? "轮到你（红方）走棋" : `AI 正在思考（${aiDepth}层）...`;
     }
 
-    function onCellClick(e) {
-      if (gameOver || current !== "red") return;
+    async function onCellClick(e) {
+      if (gameOver || current !== "red" || isAnimating) return;
       const point = e.currentTarget;
       const x = Number(point.dataset.x);
       const y = Number(point.dataset.y);
@@ -555,7 +629,12 @@
         const moves = legalMoves(selected.x, selected.y);
         const ok = moves.some(m => m.x === x && m.y === y);
         if (ok) {
-          movePiece(selected.x, selected.y, x, y);
+          const move = { from: { ...selected }, to: { x, y } };
+          if (wouldCauseThreefoldRepetition(move, current)) {
+            statusEl.textContent = "禁手：不允许形成三次重复局面，请选择其他走法。";
+            return;
+          }
+          await movePiece(selected.x, selected.y, x, y);
           selected = null;
           checkEndAndNext();
           return;
@@ -595,16 +674,23 @@
       if (current === "black") setTimeout(aiTurn, 350);
     }
 
-    function aiTurn() {
-      if (gameOver || current !== "black") return;
+    async function aiTurn() {
+      if (gameOver || current !== "black" || isAnimating) return;
       const moves = allMoves("black");
       if (!moves.length) {
         finishGame("AI 无棋可走，你获胜！", "AI 无棋可走，恭喜你获胜！");
         return;
       }
       const result = minimax(board, aiDepth, -Infinity, Infinity, true);
-      const best = result.move || moves[0];
-      movePiece(best.from.x, best.from.y, best.to.x, best.to.y);
+      const legalMovesWithoutRepeat = moves.filter(m => !wouldCauseThreefoldRepetition(m, current));
+      if (!legalMovesWithoutRepeat.length) {
+        finishGame("AI 触发三次重复禁手，你获胜！", "AI 无合法着法（避免三次重复），恭喜你获胜！");
+        return;
+      }
+      const best = (result.move && !wouldCauseThreefoldRepetition(result.move, current))
+        ? result.move
+        : legalMovesWithoutRepeat[0];
+      await movePiece(best.from.x, best.from.y, best.to.x, best.to.y);
       checkEndAndNext();
     }
 
@@ -621,28 +707,39 @@
       selected = null;
       current = "red";
       history = [];
+      repetitionCounts = Object.create(null);
       gameOver = false;
+      isAnimating = false;
       lastMovePath = null;
       statusEl.textContent = "新对局开始，你执红先行。";
       lastMoveEl.textContent = "最近一步：暂无";
+      const key = positionKey(board, current);
+      repetitionCounts[key] = 1;
       render();
     });
 
     undoBtn.addEventListener("click", () => {
       if (!history.length || gameOver) return;
-      board = history.pop();
+      let prev = history.pop();
       if (history.length && current === "red") {
-        board = history.pop() || board;
+        prev = history.pop() || prev;
+      }
+      if (prev) {
+        board = cloneBoard(prev.board);
+        repetitionCounts = cloneRepetitionCounts(prev.repetitionCounts);
+        current = prev.current;
+        lastMovePath = prev.lastMovePath;
+        lastMoveEl.textContent = prev.lastMoveText;
       }
       current = "red";
       selected = null;
-      lastMovePath = null;
       statusEl.textContent = "已悔棋，轮到你（红方）。";
-      lastMoveEl.textContent = "最近一步：已悔棋";
       render();
     });
 
     board = initBoard();
+    repetitionCounts = Object.create(null);
+    repetitionCounts[positionKey(board, current)] = 1;
     statusEl.textContent = "新对局开始，你执红先行。";
     lastMovePath = null;
     lastMoveEl.textContent = "最近一步：暂无";
